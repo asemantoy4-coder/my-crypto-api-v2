@@ -1,4 +1,4 @@
-# Optimized Requirements for Python 3.13 on Render
+# Optimized for Python 3.13 on Render
 requests>=2.31.0
 pandas>=2.2.3
 numpy>=2.1.0

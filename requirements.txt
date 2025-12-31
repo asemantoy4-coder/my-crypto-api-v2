@@ -1,0 +1,8 @@
+# Minimal Requirements for Render Deployment
+requests==2.31.0
+pandas==2.1.4
+numpy==1.24.4
+python-dotenv==1.0.0
+schedule==1.2.0
+fastapi==0.104.1
+uvicorn==0.24.0

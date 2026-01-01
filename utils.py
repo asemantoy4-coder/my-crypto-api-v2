@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # بخش ویژه: تحلیل ایچیموکو و Smart Entry (هماهنگ‌سازی با main.py)
 # ==============================================================================
 
-def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = False):
+defget_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = False):
     """نسخه نهایی با خروجی عددی (Float) برای عبور از فیلتر v8.0-PRO"""
     try:
         # ۱. تنظیم تایم‌فریم

@@ -7,12 +7,15 @@ from typing import List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = True):
+    """
+    نسخه اصلاح شده با ترازبندی دقیق برای رفع خطای Indentation
+    """
     try:
-        # ۱. نگاشت تایم‌فریم
+        # نگاشت تایم‌فریم
         tf_map = {'1m':'1m', '5m':'5m', '15m':'15m', '30m':'30m', '1h':'60m', '4h':'240m', '1d':'1d'}
         yf_interval = tf_map.get(interval, "5m")
         
-        # ۲. اصلاح نماد برای یاهو
+        # اصلاح نماد برای یاهو
         clean_symbol = symbol.upper().replace("/", "").replace("USDT", "-USD")
         if "-USD" not in clean_symbol: clean_symbol += "-USD"
         
@@ -20,10 +23,9 @@ def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int 
         df = ticker.history(period="5d", interval=yf_interval)
         
         if df.empty:
-            logger.warning(f"No data found for {clean_symbol}")
             return {"success": False, "data": [], "status": "error"}
 
-        # ۳. ساخت لیست کندل‌ها با فرمت عددی (Float) - ۱۲ ستونه
+        # ساخت لیست کندل‌ها با فرمت عددی ۱۲ ستونه
         candles = []
         for idx, row in df.tail(limit).iterrows():
             t = int(idx.timestamp() * 1000)
@@ -43,30 +45,30 @@ def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int 
             ]
             candles.append(candle)
             
-        # ۴. خروجی نهایی با تمام فیلدهای احتمالی مورد نیاز main.py
         last_price = candles[-1][4] if candles else 0
         
+        # خروجی کامل برای عبور از تمامی فیلترهای تست main.py
         result = {
             "success": True,
             "status": "success",
             "data": candles,
-            "candles": candles,           # برخی نسخه‌ها به جای data این را چک می‌کنند
+            "candles": candles,
             "source": "yahoo_finance",
-            "current_price": last_price,   # بسیار مهم برای تست اولیه
+            "current_price": last_price,
             "last_price": last_price
         }
         
-        logger.info(f"✅ Data processed for {symbol} - Price: {last_price}")
+        logger.info(f"✅ Data processed: {symbol} @ {last_price}")
         return result if return_source else candles
         
     except Exception as e:
-        logger.error(f"Error in fallback data: {e}")
+        logger.error(f"Error in fallback: {e}")
         return {"success": False, "data": [], "status": "error"}
 
 def get_market_data_simple(symbol: str, interval: str = "5m", limit: int = 100):
-    """خروجی مستقیم که تست main.py را هدف قرار می‌دهد"""
+    """این تابع مستقیماً توسط main.py فراخوانی می‌شود"""
     return get_market_data_with_fallback(symbol, interval, limit, return_source=True)
-    
+
 # ==============================================================================
 # بخش ویژه: تحلیل ایچیموکو و Smart Entry (هماهنگ‌سازی با main.py)
 # ==============================================================================

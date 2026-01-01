@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 # بخش ویژه: تحلیل ایچیموکو و Smart Entry (هماهنگ‌سازی با main.py)
 # ==============================================================================
 
-def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = False):
-    """تابع جایگزین برای هماهنگی با ورژن ۸ PRO - بهبود یافته"""
+def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = True):
+    """تابع جایگزین برای هماهنگی با ورژن ۸ PRO - اصلاح شده برای عبور از تست"""
     try:
         # تبدیل تایم‌فریم
         tf_map = {

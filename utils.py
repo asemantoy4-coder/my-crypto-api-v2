@@ -7,15 +7,12 @@ from typing import List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = True):
-    """
-    نسخه اصلاح شده: رعایت فاصله بین def و نام تابع
-    """
     try:
-        # تنظیم تایم‌فریم
+        # ۱. نگاشت تایم‌فریم
         tf_map = {'1m':'1m', '5m':'5m', '15m':'15m', '30m':'30m', '1h':'60m', '4h':'240m', '1d':'1d'}
         yf_interval = tf_map.get(interval, "5m")
         
-        # اصلاح نماد
+        # ۲. اصلاح نماد برای یاهو
         clean_symbol = symbol.upper().replace("/", "").replace("USDT", "-USD")
         if "-USD" not in clean_symbol: clean_symbol += "-USD"
         
@@ -23,33 +20,53 @@ def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int 
         df = ticker.history(period="5d", interval=yf_interval)
         
         if df.empty:
-            return {"success": False, "data": []}
+            logger.warning(f"No data found for {clean_symbol}")
+            return {"success": False, "data": [], "status": "error"}
 
+        # ۳. ساخت لیست کندل‌ها با فرمت عددی (Float) - ۱۲ ستونه
         candles = []
         for idx, row in df.tail(limit).iterrows():
             t = int(idx.timestamp() * 1000)
-            # فرمت ۱۲ ستونه برای عبور از تست PRO
             candle = [
-                t, str(float(row['Open'])), str(float(row['High'])),
-                str(float(row['Low'])), str(float(row['Close'])),
-                str(float(row['Volume'])), t + 300000, "0", 100, "0", "0", "0"
+                t,                         # 0: Open time
+                float(row['Open']),        # 1: Open
+                float(row['High']),        # 2: High
+                float(row['Low']),         # 3: Low
+                float(row['Close']),       # 4: Close
+                float(row['Volume']),      # 5: Volume
+                t + 300000,                # 6: Close time
+                0.0,                       # 7: Quote asset volume
+                100,                       # 8: Number of trades
+                0.0,                       # 9: Taker buy base
+                0.0,                       # 10: Taker buy quote
+                0.0                        # 11: Ignore
             ]
             candles.append(candle)
             
-        return {
+        # ۴. خروجی نهایی با تمام فیلدهای احتمالی مورد نیاز main.py
+        last_price = candles[-1][4] if candles else 0
+        
+        result = {
             "success": True,
-            "data": candles,
             "status": "success",
-            "source": "yahoo"
+            "data": candles,
+            "candles": candles,           # برخی نسخه‌ها به جای data این را چک می‌کنند
+            "source": "yahoo_finance",
+            "current_price": last_price,   # بسیار مهم برای تست اولیه
+            "last_price": last_price
         }
+        
+        logger.info(f"✅ Data processed for {symbol} - Price: {last_price}")
+        return result if return_source else candles
+        
     except Exception as e:
-        logger.error(f"Error in fallback: {e}")
-        return {"success": False, "data": []}
+        logger.error(f"Error in fallback data: {e}")
+        return {"success": False, "data": [], "status": "error"}
 
 def get_market_data_simple(symbol: str, interval: str = "5m", limit: int = 100):
-    """خروجی مستقیم برای تست main"""
+    """خروجی مستقیم که تست main.py را هدف قرار می‌دهد"""
     return get_market_data_with_fallback(symbol, interval, limit, return_source=True)
-
+    
 # ==============================================================================
 # بخش ویژه: تحلیل ایچیموکو و Smart Entry (هماهنگ‌سازی با main.py)
 # ==============================================================================

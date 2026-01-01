@@ -528,3 +528,14 @@ def get_support_resistance_levels_qm(data: List, lookback: int = 20) -> Dict[str
     except Exception as e:
         logger.error(f"Error in get_support_resistance_levels_qm: {e}")
         return {"support": 0, "resistance": 0}
+
+# ==============================================================================
+# رفع خطای Missing functions در main.py
+# ==============================================================================
+
+def get_market_data_simple(symbol: str, interval: str = "5m", limit: int = 100):
+    """
+    این تابع دقیقاً همان کار get_market_data_with_fallback را انجام می‌دهد
+    تا خطای Attribute Error در main.py برطرف شود.
+    """
+    return get_market_data_with_fallback(symbol, interval, limit)

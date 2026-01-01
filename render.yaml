@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: crypto-ai-bot # نام سرویس شما در رندر
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: "python cron_job.py & uvicorn main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.10

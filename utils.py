@@ -1,60 +1,76 @@
-import pandas as pd
-import numpy as np
-import yfinance as yf
-import logging
-from typing import List, Dict, Any, Optional
-
-logger = logging.getLogger(__name__)
-
-# ۱. تابع اصلی دریافت داده (اصلاح شده)
-def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = True):
+def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = False):
+    """تابع جایگزین برای هماهنگی با ورژن ۸ PRO - بهبود یافته"""
     try:
-        tf_map = {'1m':'1m', '5m':'5m', '15m':'15m', '30m':'30m', '1h':'60m', '4h':'240m', '1d':'1d'}
-        yf_interval = tf_map.get(interval, "5m")
-        clean_symbol = symbol.upper().replace("/", "").replace("USDT", "-USD")
-        if "-USD" not in clean_symbol: clean_symbol += "-USD"
-        
-        ticker = yf.Ticker(clean_symbol)
-        df = ticker.history(period="5d", interval=yf_interval)
-        
-        if df.empty: return {"success": False, "data": []}
-
-        candles = []
-        for idx, row in df.tail(limit).iterrows():
-            t = int(idx.timestamp() * 1000)
-            candles.append([t, float(row['Open']), float(row['High']), float(row['Low']), float(row['Close']), float(row['Volume']), t+300000, 0, 0, 0, 0, 0])
-            
-        last_price = candles[-1][4] if candles else 0
-        return {
-            "success": True, "status": "success", "data": candles, "candles": candles,
-            "source": "yahoo", "current_price": last_price, "close": last_price
+        # تبدیل تایم‌فریم
+        tf_map = {
+            '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '1h': '60m', '4h': '240m', '1d': '1d', '1w': '1wk'
         }
+        interval = tf_map.get(interval, interval)
+        
+        # تبدیل نماد
+        symbol = symbol.upper().replace("/", "")
+        if symbol.endswith('USDT'):
+            yf_symbol = symbol.replace('USDT', '-USD')
+        elif symbol.endswith('BUSD'):
+            yf_symbol = symbol.replace('BUSD', '-USD')
+        else:
+            yf_symbol = f"{symbol}-USD"
+        
+        # دریافت داده از Yahoo Finance
+        ticker = yf.Ticker(yf_symbol)
+        
+        # تعیین دوره بر اساس limit
+        if limit <= 100:
+            period = "5d"
+        elif limit <= 500:
+            period = "1mo"
+        else:
+            period = "3mo"
+        
+        df = ticker.history(period=period, interval=interval)
+        
+        if df.empty:
+            logger.warning(f"No data for {symbol} -> {yf_symbol}")
+            return [] if not return_source else {"data": [], "source": "yahoo", "success": False}
+        
+        # محدود کردن به تعداد مورد نیاز
+        df = df.tail(min(limit, len(df)))
+        
+        # تبدیل به فرمت کندل استاندارد
+        candles = []
+        for idx, row in df.iterrows():
+            timestamp = int(idx.timestamp() * 1000)
+            candle = [
+                timestamp,
+                float(row['Open']),
+                float(row['High']),
+                float(row['Low']),
+                float(row['Close']),
+                float(row['Volume']),
+                timestamp + 300000,  # close_time (5 دقیقه بعد)
+                str(float(row['Volume']) * float(row['Close'])),
+                "0", "0", "0", "0"
+            ]
+            candles.append(candle)
+        
+        logger.info(f"Fetched {len(candles)} candles for {symbol} from Yahoo Finance")
+        
+        if return_source:
+            return {
+                "data": candles,
+                "source": "yahoo_finance",
+                "success": True,
+                "candle_count": len(candles),
+                "current_price": candles[-1][4] if candles else 0
+            }
+        
+        return candles
+        
     except Exception as e:
-        return {"success": False, "data": []}
-
-# ۲. تابعی که main.py برای تست اولیه صدا می‌زند
-def get_market_data_simple(symbol: str, interval: str = "5m", limit: int = 100):
-    return get_market_data_with_fallback(symbol, interval, limit, return_source=True)
-
-# ۳. تابع احتمالی برای بررسی وضعیت اتصال (بسیار مهم)
-def check_market_connection():
-    """بسیاری از نسخه‌های v8 این تابع را برای تست سبز شدن فراخوانی می‌کنند"""
-    return True
-
-# ۴. تابع دریافت قیمت لحظه‌ای (احتمالاً تست روی این خطاست)
-def get_current_price(symbol: str):
-    try:
-        data = get_market_data_with_fallback(symbol, limit=1)
-        if data.get("success"):
-            return data.get("current_price")
-        return 0.0
-    except:
-        return 0.0
-
-# ۵. تابع کمکی برای سازگاری با متغیرهای داخلی main
-def get_binance_klines_enhanced(symbol: str, interval: str = "5m", limit: int = 100):
-    return get_market_data_with_fallback(symbol, interval, limit, return_source=True)
-
+        logger.error(f"Error in get_market_data_with_fallback for {symbol}: {e}")
+        return [] if not return_source else {"data": [], "source": "error", "success": False}
+        
 # ==============================================================================
 # بخش ویژه: تحلیل ایچیموکو و Smart Entry (هماهنگ‌سازی با main.py)
 # ==============================================================================

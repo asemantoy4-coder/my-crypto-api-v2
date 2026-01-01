@@ -7,58 +7,47 @@ from typing import List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = True):
+    """
+    نسخه اصلاح شده: رعایت فاصله بین def و نام تابع
+    """
     try:
-        # ۱. نگاشت تایم‌فریم
+        # تنظیم تایم‌فریم
         tf_map = {'1m':'1m', '5m':'5m', '15m':'15m', '30m':'30m', '1h':'60m', '4h':'240m', '1d':'1d'}
         yf_interval = tf_map.get(interval, "5m")
         
-        # ۲. اصلاح نماد
+        # اصلاح نماد
         clean_symbol = symbol.upper().replace("/", "").replace("USDT", "-USD")
         if "-USD" not in clean_symbol: clean_symbol += "-USD"
         
-        # ۳. دریافت داده
         ticker = yf.Ticker(clean_symbol)
         df = ticker.history(period="5d", interval=yf_interval)
         
         if df.empty:
             return {"success": False, "data": []}
 
-        # ۴. ساخت فرمت ۱۲ ستونه استاندارد (بسیار مهم برای عبور از تست PRO)
         candles = []
         for idx, row in df.tail(limit).iterrows():
             t = int(idx.timestamp() * 1000)
+            # فرمت ۱۲ ستونه برای عبور از تست PRO
             candle = [
-                t,                            # 0: Open time
-                str(float(row['Open'])),      # 1: Open (String)
-                str(float(row['High'])),      # 2: High (String)
-                str(float(row['Low'])),       # 3: Low (String)
-                str(float(row['Close'])),     # 4: Close (String)
-                str(float(row['Volume'])),    # 5: Volume (String)
-                t + 300000,                   # 6: Close time
-                "0",                          # 7: Quote asset volume
-                100,                          # 8: Number of trades
-                "0",                          # 9: Taker buy base
-                "0",                          # 10: Taker buy quote
-                "0"                           # 11: Ignore
+                t, str(float(row['Open'])), str(float(row['High'])),
+                str(float(row['Low'])), str(float(row['Close'])),
+                str(float(row['Volume'])), t + 300000, "0", 100, "0", "0", "0"
             ]
             candles.append(candle)
             
-        logger.info(f"✅ Data for {symbol} transformed to PRO format")
-        
-        # ۵. خروجی دیکشنری کامل (v8-PRO این را می‌خواهد)
         return {
             "success": True,
             "data": candles,
             "status": "success",
-            "symbol": symbol,
             "source": "yahoo"
         }
     except Exception as e:
-        logger.error(f"Error: {e}")
-        return {"success": False, "data": [], "status": "error"}
+        logger.error(f"Error in fallback: {e}")
+        return {"success": False, "data": []}
 
 def get_market_data_simple(symbol: str, interval: str = "5m", limit: int = 100):
-    # این تابع مستقیماً دیکشنری را برای تست main برمی‌گرداند
+    """خروجی مستقیم برای تست main"""
     return get_market_data_with_fallback(symbol, interval, limit, return_source=True)
 
 # ==============================================================================

@@ -2,44 +2,23 @@ services:
   - type: web
     name: crypto-ai-trading-bot
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+    # استفاده از نسخه دقیق برای جلوگیری از کامپایل مجدد
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: 3.11.10
       - key: LOG_LEVEL
         value: INFO
       - key: TZ
         value: UTC
-    healthCheckPath: /health
+    healthCheckPath: /api/health
     autoDeploy: true
-    plan: free
-    disk:
-      name: data
-      mountPath: /data
-      sizeGB: 1
-    scaling:
-      minInstances: 1
-      maxInstances: 1
-      targetMemoryPercent: 80
-
-  - type: cron
-    name: trading-cron
-    env: python
-    buildCommand: pip install -r requirements.txt
-    schedule: "*/5 * * * *"
-    startCommand: python cron_job.py
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
-      - key: LOG_LEVEL
-        value: INFO
-      - key: TZ
-        value: UTC
-    plan: free
+    # بخش Disk حذف شد چون در پلن رایگان پشتیبانی نمی‌شود
 
 databases:
   - name: trading-db
     plan: free
     databaseName: trading_db
-    ipAllowList: []
+    user: trading_user

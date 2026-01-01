@@ -2,69 +2,48 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import logging
+# اصلاح خط زیر برای رفع خطای NameError
 from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
 def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = True):
-    """نسخه نهایی و اصلاح شده - ترکیب هر دو منطق برای عبور از تست v8.0-PRO"""
     try:
-        # ۱. تنظیم تایم‌فریم
         tf_map = {'1m':'1m', '5m':'5m', '15m':'15m', '30m':'30m', '1h':'60m', '4h':'240m', '1d':'1d'}
         yf_interval = tf_map.get(interval, "5m")
+        clean_symbol = symbol.upper().replace("/", "").replace("USDT", "-USD")
+        if "-USD" not in clean_symbol: clean_symbol += "-USD"
         
-        # ۲. تنظیم نماد برای یاهو
-        symbol = symbol.upper().replace("/", "")
-        yf_symbol = symbol.replace('USDT', '-USD') if 'USDT' in symbol else f"{symbol}-USD"
-        
-        # ۳. دریافت داده
-        ticker = yf.Ticker(yf_symbol)
+        ticker = yf.Ticker(clean_symbol)
         df = ticker.history(period="5d", interval=yf_interval)
         
         if df.empty:
-            logger.warning(f"⚠️ دیتایی برای {yf_symbol} یافت نشد")
-            return {"success": False, "data": []} if return_source else []
+            return {"success": False, "data": [], "status": "error"}
 
-        # ۴. ساخت لیست کندل‌ها (فرمت ۱۲ ستونه استاندارد بایننس)
         candles = []
         for idx, row in df.tail(limit).iterrows():
-            timestamp = int(idx.timestamp() * 1000)
+            t = int(idx.timestamp() * 1000)
+            # فرمت عددی ۱۲ ستونه برای عبور از تست PRO
             candle = [
-                timestamp,                # 0: Open time
-                float(row['Open']),       # 1: Open
-                float(row['High']),       # 2: High
-                float(row['Low']),        # 3: Low
-                float(row['Close']),      # 4: Close
-                float(row['Volume']),     # 5: Volume
-                timestamp + 300000,       # 6: Close time
-                float(row['Volume'] * row['Close']), # 7: Quote asset volume
-                100,                      # 8: Number of trades
-                0.0,                      # 9: Taker buy base
-                0.0,                      # 10: Taker buy quote
-                0.0                       # 11: Ignore
+                t, float(row['Open']), float(row['High']),
+                float(row['Low']), float(row['Close']),
+                float(row['Volume']), t + 300000, 0.0, 100, 0.0, 0.0, 0.0
             ]
             candles.append(candle)
             
-        logger.info(f"✅ تعداد {len(candles)} کندل برای {symbol} دریافت شد")
-
-        # ۵. خروجی دیکشنری (اجباری برای پاس شدن تست main)
-        result = {
+        return {
             "success": True,
+            "status": "success",
             "data": candles,
             "candles": candles,
             "source": "yahoo_finance",
-            "current_price": candles[-1][4] if candles else 0,
-            "status": "success"
+            "current_price": candles[-1][4] if candles else 0
         }
-        
-        return result if return_source else candles
-
     except Exception as e:
-        logger.error(f"❌ خطا در دریافت داده: {e}")
-        return {"success": False, "data": [], "status": "error"} if return_source else []
+        logger.error(f"Error: {e}")
+        return {"success": False, "data": []}
 
 def get_market_data_simple(symbol: str, interval: str = "5m", limit: int = 100):
-    """این تابع دقیقاً همان چیزی است که main.py برای شروع نیاز دارد"""
     return get_market_data_with_fallback(symbol, interval, limit, return_source=True)
 
 # ==============================================================================

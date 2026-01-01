@@ -911,5 +911,4 @@ if __name__ == "__main__":
     def get_market_data_simple(symbol: str, timeframe: str = "5m"):
     return get_market_data_with_fallback(symbol, timeframe)
     def get_market_data_simple(symbol: str, timeframe: str = "5m"):
-    """این همان تابعی است که سرور برای شروع به آن نیاز دارد"""
     return get_market_data_with_fallback(symbol, timeframe)

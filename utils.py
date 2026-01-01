@@ -1,661 +1,522 @@
 # ==============================================================================
-# ۱۳. توابع عملیاتی و ارتباطی (Operational & Telegram)
+# بخش ویژه: تحلیل ایچیموکو و Smart Entry (هماهنگ‌سازی با main.py)
 # ==============================================================================
 
-import requests
-import os
-import time
-import csv
-from datetime import datetime
-from typing import List
-import logging
-
-# تنظیمات logger
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('trading_bot.log')
-    ]
-)
-logger = logging.getLogger(__name__)
-
-def send_telegram_notification(message: str, token: str, chat_id: str):
-    """ارسال واقعی پیام به تلگرام"""
+def get_market_data_with_fallback(symbol: str, interval: str = "5m", limit: int = 150, return_source: bool = False):
+    """تابع جایگزین برای هماهنگی با ورژن ۸ PRO - بهبود یافته"""
     try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-        response = requests.post(url, json=payload, timeout=10)
-        
-        if response.status_code == 200:
-            logger.info("📡 پیام با موفقیت به تلگرام ارسال شد")
-            return True
-        else:
-            logger.error(f"❌ خطای تلگرام API: {response.status_code} - {response.text}")
-            return False
-            
-    except requests.exceptions.Timeout:
-        logger.error("⏰ زمان ارسال پیام به تلگرام به پایان رسید")
-        return False
-    except Exception as e:
-        logger.error(f"❌ خطا در ارسال به تلگرام: {e}")
-        return False
-
-def format_telegram_message(val: dict) -> str:
-    """قالب‌بندی پیام با استفاده از خروجی تابع combined_technical_analysis"""
-    # ایموجی مناسب
-    if val['signal'] == "BUY":
-        emoji = "🟢"
-        action = "خرید"
-    elif val['signal'] == "SELL":
-        emoji = "🔴"
-        action = "فروش"
-    else:
-        emoji = "🟡"
-        action = "نگه‌دارید"
-    
-    # دلایل تحلیل
-    reasons = val.get('reasons', ["تحلیل تکنیکال نشان‌دهنده شرایط خاص است"])
-    reasons_str = "\n".join([f"• {r}" for r in reasons[:5]])  # حداکثر 5 دلیل
-    
-    # قیمت‌ها
-    current_price = val.get('current_price', val.get('price', 0))
-    entry_price = val.get('entry_price', current_price)
-    
-    # اهداف و حد ضرر
-    targets = val.get('targets', [])
-    stop_loss = val.get('stop_loss', 0)
-    
-    # ساخت پیام
-    message = f"""
-{emoji} **سیگنال معاملاتی جدید** {emoji}
-
-**نماد:** #{val['symbol']}
-**عمل:** {action} ({val['signal']})
-**اعتماد:** {val.get('confidence', 0)*100:.1f}%
-
-**سطوح قیمتی:**
-• قیمت فعلی: ${current_price:,.2f}
-• نقطه ورود: ${entry_price:,.2f}
-• حد ضرر: ${stop_loss:,.2f}
-
-**اهداف قیمتی:**
-{chr(10).join([f'• هدف {i+1}: ${target:,.2f}' for i, target in enumerate(targets)]) if targets else '• اهداف تعیین نشده'}
-
-**دلایل فنی:**
-{reasons_str}
-
-**تایم‌فریم:** {val.get('interval', '5m')}
-**زمان تحلیل:** {val.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}
-
-⚠️ **تذکر:** این سیگنال توصیه مالی نیست. تحلیل شخصی خود را انجام دهید.
-"""
-    return message
-
-def save_trade_to_csv(signal_data: dict):
-    """ذخیره سیگنال در فایل CSV"""
-    filename = "trading_signals_history.csv"
-    
-    # فیلدهای CSV
-    fieldnames = [
-        'timestamp', 'symbol', 'signal', 'confidence', 
-        'current_price', 'entry_price', 'stop_loss', 
-        'targets', 'reasons', 'interval', 'rsi', 'macd_signal'
-    ]
-    
-    # آماده‌سازی داده
-    row_data = {
-        'timestamp': signal_data.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
-        'symbol': signal_data.get('symbol', 'UNKNOWN'),
-        'signal': signal_data.get('signal', 'HOLD'),
-        'confidence': signal_data.get('confidence', 0),
-        'current_price': signal_data.get('current_price', signal_data.get('price', 0)),
-        'entry_price': signal_data.get('entry_price', 0),
-        'stop_loss': signal_data.get('stop_loss', 0),
-        'targets': str(signal_data.get('targets', [])),
-        'reasons': " | ".join(signal_data.get('reasons', ['No reasons provided'])),
-        'interval': signal_data.get('interval', '5m'),
-        'rsi': signal_data.get('rsi', 0),
-        'macd_signal': signal_data.get('macd_signal', 'NEUTRAL')
-    }
-    
-    try:
-        # بررسی وجود فایل
-        file_exists = os.path.isfile(filename)
-        
-        with open(filename, 'a', newline='', encoding='utf-8') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            
-            if not file_exists:
-                writer.writeheader()
-            
-            writer.writerow(row_data)
-            logger.info(f"💾 سیگنال {signal_data.get('symbol')} در CSV ذخیره شد")
-            
-    except Exception as e:
-        logger.error(f"❌ خطا در ذخیره‌سازی CSV: {e}")
-
-def initialize_system():
-    """راه‌اندازی اولیه سیستم"""
-    logger.info("🔄 در حال راه‌اندازی سیستم معاملاتی...")
-    
-    # بررسی متغیرهای محیطی
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    
-    if not bot_token or bot_token == "YOUR_ACTUAL_TOKEN":
-        logger.warning("⚠️ توکن تلگرام تنظیم نشده است. لطفاً TELEGRAM_BOT_TOKEN را تنظیم کنید")
-    
-    if not chat_id or chat_id == "YOUR_ACTUAL_ID":
-        logger.warning("⚠️ چت آیدی تلگرام تنظیم نشده است. لطفاً TELEGRAM_CHAT_ID را تنظیم کنید")
-    
-    # ایجاد دایرکتوری‌های مورد نیاز
-    os.makedirs("logs", exist_ok=True)
-    os.makedirs("data", exist_ok=True)
-    
-    logger.info("✅ سیستم با موفقیت راه‌اندازی شد")
-    return True
-
-def clear_expired_cache():
-    """پاک‌سازی حافظه کش منقضی شده"""
-    # این تابع می‌تواند کش‌های موقت سیستم را پاک کند
-    # فعلاً یک پیاده‌سازی ساده
-    pass
-
-# ==============================================================================
-# ۱۴. توابع اصلی تحلیل بازار
-# ==============================================================================
-
-def get_market_data_simple(symbol: str, interval: str = "5m", limit: int = 100):
-    """
-    دریافت داده‌های بازار از صرافی
-    
-    Args:
-        symbol: نماد معاملاتی (مثال: BTCUSDT)
-        interval: تایم‌فریم (1m, 5m, 15m, 1h, 4h, 1d)
-        limit: تعداد کندل‌های درخواستی
-    
-    Returns:
-        list: لیست کندل‌ها به صورت [timestamp, open, high, low, close, volume]
-    """
-    try:
-        # استفاده از API عمومی Binance (بدون نیاز به کلید API)
-        url = f"https://api.binance.com/api/v3/klines"
-        params = {
-            'symbol': symbol,
-            'interval': interval,
-            'limit': limit
+        # تبدیل تایم‌فریم
+        tf_map = {
+            '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '1h': '60m', '4h': '240m', '1d': '1d', '1w': '1wk'
         }
+        interval = tf_map.get(interval, interval)
         
-        response = requests.get(url, params=params, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            candles = []
-            
-            for candle in data:
-                candles.append([
-                    int(candle[0]),  # timestamp
-                    float(candle[1]),  # open
-                    float(candle[2]),  # high
-                    float(candle[3]),  # low
-                    float(candle[4]),  # close
-                    float(candle[5])   # volume
-                ])
-            
-            logger.debug(f"📊 داده‌های {symbol} دریافت شد ({len(candles)} کندل)")
-            return candles
-            
+        # تبدیل نماد
+        symbol = symbol.upper().replace("/", "")
+        if symbol.endswith('USDT'):
+            yf_symbol = symbol.replace('USDT', '-USD')
+        elif symbol.endswith('BUSD'):
+            yf_symbol = symbol.replace('BUSD', '-USD')
         else:
-            logger.error(f"❌ خطا در دریافت داده‌های {symbol}: {response.status_code}")
-            return None
-            
+            yf_symbol = f"{symbol}-USD"
+        
+        # دریافت داده از Yahoo Finance
+        ticker = yf.Ticker(yf_symbol)
+        
+        # تعیین دوره بر اساس limit
+        if limit <= 100:
+            period = "5d"
+        elif limit <= 500:
+            period = "1mo"
+        else:
+            period = "3mo"
+        
+        df = ticker.history(period=period, interval=interval)
+        
+        if df.empty:
+            logger.warning(f"No data for {symbol} -> {yf_symbol}")
+            return [] if not return_source else {"data": [], "source": "yahoo", "success": False}
+        
+        # محدود کردن به تعداد مورد نیاز
+        df = df.tail(min(limit, len(df)))
+        
+        # تبدیل به فرمت کندل استاندارد
+        candles = []
+        for idx, row in df.iterrows():
+            timestamp = int(idx.timestamp() * 1000)
+            candle = [
+                timestamp,
+                float(row['Open']),
+                float(row['High']),
+                float(row['Low']),
+                float(row['Close']),
+                float(row['Volume']),
+                timestamp + 300000,  # close_time (5 دقیقه بعد)
+                str(float(row['Volume']) * float(row['Close'])),
+                "0", "0", "0", "0"
+            ]
+            candles.append(candle)
+        
+        logger.info(f"Fetched {len(candles)} candles for {symbol} from Yahoo Finance")
+        
+        if return_source:
+            return {
+                "data": candles,
+                "source": "yahoo_finance",
+                "success": True,
+                "candle_count": len(candles),
+                "current_price": candles[-1][4] if candles else 0
+            }
+        
+        return candles
+        
     except Exception as e:
-        logger.error(f"❌ خطا در دریافت داده‌های بازار: {e}")
-        return None
+        logger.error(f"Error in get_market_data_with_fallback for {symbol}: {e}")
+        return [] if not return_source else {"data": [], "source": "error", "success": False}
 
-def combined_technical_analysis(data, symbol: str, interval: str):
-    """
-    تحلیل تکنیکال ترکیبی
-    
-    Args:
-        data: داده‌های کندل‌ستیکی
-        symbol: نماد معاملاتی
-        interval: تایم‌فریم
-    
-    Returns:
-        dict: نتایج تحلیل تکنیکال
-    """
-    if not data or len(data) < 20:
-        logger.warning(f"⚠️ داده‌های ناکافی برای تحلیل {symbol}")
-        return None
-    
+def calculate_ichimoku_components(data: List) -> Dict[str, Any]:
+    """محاسبه کامل اجزای ایچیموکو - نسخه بهبود یافته"""
     try:
-        # استخراج قیمت‌های بسته شدن
-        closes = [candle[4] for candle in data]
-        highs = [candle[2] for candle in data]
-        lows = [candle[3] for candle in data]
+        if not data or len(data) < 52:
+            logger.warning(f"Insufficient data for Ichimoku: {len(data)} candles")
+            return {}
         
-        # قیمت فعلی
+        # استخراج داده‌ها
+        highs = []
+        lows = []
+        closes = []
+        
+        for candle in data:
+            if len(candle) > 4:
+                try:
+                    highs.append(float(candle[2]))
+                    lows.append(float(candle[3]))
+                    closes.append(float(candle[4]))
+                except (ValueError, TypeError):
+                    continue
+        
+        if len(highs) < 52 or len(lows) < 52 or len(closes) < 52:
+            return {}
+        
+        # تبدیل به Series برای محاسبات رولینگ
+        highs_series = pd.Series(highs)
+        lows_series = pd.Series(lows)
+        closes_series = pd.Series(closes)
+        
+        # 1. Tenkan-sen (Conversion Line): (9-period high + 9-period low) / 2
+        nine_period_high = highs_series.rolling(window=9).max()
+        nine_period_low = lows_series.rolling(window=9).min()
+        tenkan_sen = (nine_period_high + nine_period_low) / 2
+        
+        # 2. Kijun-sen (Base Line): (26-period high + 26-period low) / 2
+        twentysix_period_high = highs_series.rolling(window=26).max()
+        twentysix_period_low = lows_series.rolling(window=26).min()
+        kijun_sen = (twentysix_period_high + twentysix_period_low) / 2
+        
+        # 3. Senkou Span A (Leading Span A): (Tenkan-sen + Kijun-sen) / 2 (shifted 26 periods forward)
+        senkou_span_a = ((tenkan_sen + kijun_sen) / 2).shift(26)
+        
+        # 4. Senkou Span B (Leading Span B): (52-period high + 52-period low) / 2 (shifted 26 periods forward)
+        fiftytwo_period_high = highs_series.rolling(window=52).max()
+        fiftytwo_period_low = lows_series.rolling(window=52).min()
+        senkou_span_b = ((fiftytwo_period_high + fiftytwo_period_low) / 2).shift(26)
+        
+        # 5. Chikou Span (Lagging Span): Close price shifted 26 periods backward
+        chikou_span = closes_series.shift(-26)
+        
+        # مقادیر آخرین دوره
+        last_idx = len(tenkan_sen) - 1
         current_price = closes[-1]
+        tenkan_val = float(tenkan_sen.iloc[last_idx]) if not pd.isna(tenkan_sen.iloc[last_idx]) else 0
+        kijun_val = float(kijun_sen.iloc[last_idx]) if not pd.isna(kijun_sen.iloc[last_idx]) else 0
+        senkou_a_val = float(senkou_span_a.iloc[last_idx]) if not pd.isna(senkou_span_a.iloc[last_idx]) else 0
+        senkou_b_val = float(senkou_span_b.iloc[last_idx]) if not pd.isna(senkou_span_b.iloc[last_idx]) else 0
+        chikou_val = float(chikou_span.iloc[last_idx]) if not pd.isna(chikou_span.iloc[last_idx]) else 0
         
-        # ۱. محاسبه RSI
-        rsi_value = calculate_rsi(closes)
+        # محاسبه ابر کومو
+        cloud_top = max(senkou_a_val, senkou_b_val)
+        cloud_bottom = min(senkou_a_val, senkou_b_val)
         
-        # ۲. محاسبه MACD
-        macd_signal = calculate_macd_signal(closes)
+        # وضعیت قیمت نسبت به ابر
+        above_cloud = current_price > cloud_top
+        below_cloud = current_price < cloud_bottom
+        in_cloud = cloud_bottom <= current_price <= cloud_top
         
-        # ۳. محاسبه میانگین‌های متحرک
-        sma_20 = calculate_sma(closes, 20)
-        sma_50 = calculate_sma(closes, 50)
+        # کراس تنکان و کیجون
+        tenkan_kijun_cross = "bullish" if tenkan_val > kijun_val else "bearish"
         
-        # ۴. سطوح حمایت و مقاومت
-        support, resistance = calculate_support_resistance(highs, lows)
+        # رنگ ابر (صعودی/نزولی)
+        cloud_color = "green" if senkou_a_val > senkou_b_val else "red" if senkou_a_val < senkou_b_val else "neutral"
         
-        # ۵. تشخیص روند
-        trend = identify_trend(closes, sma_20, sma_50)
-        
-        # جمع‌آوری دلایل تحلیل
-        reasons = []
-        
-        # تحلیل RSI
-        if rsi_value < 30:
-            reasons.append("RSI در منطقه اشباع فروش (<30)")
-        elif rsi_value > 70:
-            reasons.append("RSI در منطقه اشباع خرید (>70)")
-        
-        # تحلیل MACD
-        if macd_signal == "BULLISH":
-            reasons.append("MACD سیگنال صعودی")
-        elif macd_signal == "BEARISH":
-            reasons.append("MACD سیگنال نزولی")
-        
-        # تحلیل میانگین‌های متحرک
-        if sma_20 > sma_50 and closes[-1] > sma_20:
-            reasons.append("قیمت بالای میانگین‌های متحرک")
-        elif sma_20 < sma_50 and closes[-1] < sma_20:
-            reasons.append("قیمت زیر میانگین‌های متحرک")
+        # ضخامت ابر
+        cloud_thickness = ((cloud_top - cloud_bottom) / cloud_bottom * 100) if cloud_bottom > 0 else 0
         
         return {
-            'symbol': symbol,
-            'interval': interval,
-            'current_price': current_price,
-            'rsi': rsi_value,
-            'macd_signal': macd_signal,
-            'sma_20': sma_20,
-            'sma_50': sma_50,
-            'support': support,
-            'resistance': resistance,
-            'trend': trend,
-            'reasons': reasons,
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            "tenkan_sen": round(tenkan_val, 4),
+            "kijun_sen": round(kijun_val, 4),
+            "senkou_span_a": round(senkou_a_val, 4),
+            "senkou_span_b": round(senkou_b_val, 4),
+            "chikou_span": round(chikou_val, 4),
+            "cloud_top": round(cloud_top, 4),
+            "cloud_bottom": round(cloud_bottom, 4),
+            "current_price": round(current_price, 4),
+            "above_cloud": above_cloud,
+            "below_cloud": below_cloud,
+            "in_cloud": in_cloud,
+            "tenkan_kijun_cross": tenkan_kijun_cross,
+            "cloud_color": cloud_color,
+            "cloud_thickness": round(cloud_thickness, 2),
+            "cloud_distance": round(((current_price - cloud_bottom) / cloud_bottom * 100), 2) if cloud_bottom > 0 else 0,
+            "tenkan_distance": round(((tenkan_val - kijun_val) / kijun_val * 100), 2) if kijun_val > 0 else 0
         }
         
     except Exception as e:
-        logger.error(f"❌ خطا در تحلیل تکنیکال {symbol}: {e}")
-        return None
+        logger.error(f"Error in calculate_ichimoku_components: {e}")
+        return {}
 
-def validate_final_signal(analysis):
-    """
-    اعتبارسنجی نهایی سیگنال
-    
-    Args:
-        analysis: خروجی تابع combined_technical_analysis
-    
-    Returns:
-        dict: سیگنال اعتبارسنجی شده
-    """
-    if not analysis:
-        return {'signal': 'HOLD', 'is_validated': False}
-    
+def analyze_ichimoku_scalp_signal(data: List) -> Dict[str, Any]:
+    """تشخیص سیگنال اسکلپ بر اساس ایچیموکو - نسخه کامل"""
     try:
-        signal = "HOLD"
-        confidence = 0.0
-        reasons = analysis.get('reasons', [])
+        if not data or len(data) < 26:
+            return {
+                "signal": "NEUTRAL",
+                "confidence": 0.5,
+                "reason": "Insufficient data",
+                "details": {}
+            }
         
-        # استخراج مقادیر
-        rsi = analysis.get('rsi', 50)
-        macd = analysis.get('macd_signal', 'NEUTRAL')
-        trend = analysis.get('trend', 'SIDEWAYS')
-        price = analysis.get('current_price', 0)
-        support = analysis.get('support', 0)
-        resistance = analysis.get('resistance', 0)
+        # محاسبه ایچیموکو
+        ichimoku = calculate_ichimoku_components(data)
+        if not ichimoku:
+            return {
+                "signal": "NEUTRAL",
+                "confidence": 0.5,
+                "reason": "Ichimoku calculation failed",
+                "details": {}
+            }
         
-        # منطق تولید سیگنال (قابل تنظیم)
-        buy_score = 0
-        sell_score = 0
+        current_price = ichimoku.get('current_price', 0)
+        tenkan_sen = ichimoku.get('tenkan_sen', 0)
+        kijun_sen = ichimoku.get('kijun_sen', 0)
+        above_cloud = ichimoku.get('above_cloud', False)
+        below_cloud = ichimoku.get('below_cloud', False)
+        tenkan_kijun_cross = ichimoku.get('tenkan_kijun_cross', 'neutral')
+        cloud_color = ichimoku.get('cloud_color', 'neutral')
         
-        # شرایط خرید
-        if rsi < 35:
-            buy_score += 2
-            reasons.append("RSI پایین (شرایط اشباع فروش)")
-        if macd == "BULLISH":
-            buy_score += 2
-        if trend == "UPTREND":
-            buy_score += 1
-        if price < support * 1.02:  # نزدیک به حمایت
-            buy_score += 1
-            reasons.append("نزدیک به سطح حمایت")
+        # سیستم امتیازدهی
+        bullish_score = 0
+        bearish_score = 0
+        reasons = []
         
-        # شرایط فروش
-        if rsi > 65:
-            sell_score += 2
-            reasons.append("RSI بالا (شرایط اشباع خرید)")
-        if macd == "BEARISH":
-            sell_score += 2
-        if trend == "DOWNTREND":
-            sell_score += 1
-        if price > resistance * 0.98:  # نزدیک به مقاومت
-            sell_score += 1
-            reasons.append("نزدیک به سطح مقاومت")
+        # شرایط صعودی
+        if tenkan_kijun_cross == 'bullish':
+            bullish_score += 2
+            reasons.append("Tenkan above Kijun (Bullish cross)")
         
-        # تصمیم‌گیری نهایی
-        if buy_score >= 4 and buy_score > sell_score:
-            signal = "BUY"
-            confidence = min(0.9, buy_score / 10)
-            # محاسبه اهداف و حد ضرر برای خرید
-            entry = price
-            stop_loss = entry * 0.97  # 3% حد ضرر
-            targets = [
-                entry * 1.02,  # 2% هدف اول
-                entry * 1.05,  # 5% هدف دوم
-                entry * 1.08   # 8% هدف سوم
-            ]
+        if above_cloud:
+            bullish_score += 2
+            reasons.append("Price above cloud")
+        
+        if cloud_color == 'green':
+            bullish_score += 1
+            reasons.append("Cloud is green (bullish)")
+        
+        if current_price > tenkan_sen > kijun_sen:
+            bullish_score += 1
+            reasons.append("Price > Tenkan > Kijun")
+        
+        # شرایط نزولی
+        if tenkan_kijun_cross == 'bearish':
+            bearish_score += 2
+            reasons.append("Tenkan below Kijun (Bearish cross)")
+        
+        if below_cloud:
+            bearish_score += 2
+            reasons.append("Price below cloud")
+        
+        if cloud_color == 'red':
+            bearish_score += 1
+            reasons.append("Cloud is red (bearish)")
+        
+        if current_price < tenkan_sen < kijun_sen:
+            bearish_score += 1
+            reasons.append("Price < Tenkan < Kijun")
+        
+        # تصمیم‌گیری
+        if bullish_score >= 3 and bullish_score > bearish_score:
+            signal = "BULLISH"
+            confidence = min(0.5 + (bullish_score * 0.1), 0.9)
+        elif bearish_score >= 3 and bearish_score > bullish_score:
+            signal = "BEARISH"
+            confidence = min(0.5 + (bearish_score * 0.1), 0.9)
+        else:
+            signal = "NEUTRAL"
+            confidence = 0.5
+            reasons.append("Market in equilibrium")
+        
+        # کاهش اعتماد اگر داخل ابر
+        if ichimoku.get('in_cloud', False):
+            confidence *= 0.7
+            reasons.append("Reduced confidence (price in cloud)")
+        
+        return {
+            "signal": signal,
+            "confidence": round(confidence, 3),
+            "reason": " | ".join(reasons),
+            "details": ichimoku,
+            "scores": {"bullish": bullish_score, "bearish": bearish_score}
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in analyze_ichimoku_scalp_signal: {e}")
+        return {
+            "signal": "NEUTRAL",
+            "confidence": 0.5,
+            "reason": f"Analysis error: {str(e)[:50]}",
+            "details": {}
+        }
+
+def calculate_simple_rsi(data: List, period: int = 14) -> float:
+    """محاسبه RSI ساده - هماهنگ با main.py"""
+    try:
+        if not data or len(data) < period + 1:
+            return 50.0
+        
+        closes = []
+        for candle in data:
+            if len(candle) > 4:
+                try:
+                    closes.append(float(candle[4]))
+                except (ValueError, TypeError):
+                    continue
+        
+        if len(closes) < period + 1:
+            return 50.0
+        
+        # محاسبه RSI
+        deltas = np.diff(closes)
+        gains = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
+        
+        avg_gain = np.mean(gains[:period])
+        avg_loss = np.mean(losses[:period])
+        
+        if avg_loss == 0:
+            return 100.0
+        
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        # ادامه محاسبات
+        for i in range(period, len(gains)):
+            avg_gain = ((avg_gain * (period - 1)) + gains[i]) / period
+            avg_loss = ((avg_loss * (period - 1)) + losses[i]) / period
             
-        elif sell_score >= 4 and sell_score > buy_score:
-            signal = "SELL"
-            confidence = min(0.9, sell_score / 10)
-            # محاسبه اهداف و حد ضرر برای فروش
-            entry = price
-            stop_loss = entry * 1.03  # 3% حد ضرر
-            targets = [
-                entry * 0.98,  # -2% هدف اول
-                entry * 0.95,  # -5% هدف دوم
-                entry * 0.92   # -8% هدف سوم
-            ]
+            if avg_loss == 0:
+                rsi = 100.0
+            else:
+                rs = avg_gain / avg_loss
+                rsi = 100 - (100 / (1 + rs))
+        
+        return float(round(rsi, 2))
+        
+    except Exception as e:
+        logger.error(f"Error in calculate_simple_rsi: {e}")
+        return 50.0
+
+def calculate_simple_sma(data: List, period: int = 50) -> float:
+    """محاسبه SMA ساده - هماهنگ با main.py"""
+    try:
+        if not data or len(data) < period:
+            return 0.0
+        
+        closes = []
+        for candle in data[-period:]:
+            if len(candle) > 4:
+                try:
+                    closes.append(float(candle[4]))
+                except (ValueError, TypeError):
+                    continue
+        
+        if not closes:
+            return 0.0
+        
+        sma = sum(closes) / len(closes)
+        return float(round(sma, 4))
+        
+    except Exception as e:
+        logger.error(f"Error in calculate_simple_sma: {e}")
+        return 0.0
+
+def calculate_smart_entry(symbol: str, signal_type: str, current_price: float, 
+                         data: Optional[List] = None) -> Dict[str, float]:
+    """محاسبه دقیق نقطه ورود، تارگت و حد ضرر بر اساس الگوی QM"""
+    try:
+        if current_price <= 0:
+            return {"entry": 0, "tp": 0, "sl": 0}
+        
+        # تنظیمات نماد
+        symbol_settings = {
+            "BTCUSDT": {"volatility": 0.02, "risk_reward": 1.5},
+            "ETHUSDT": {"volatility": 0.025, "risk_reward": 1.5},
+            "BNBUSDT": {"volatility": 0.03, "risk_reward": 1.5},
+            "SOLUSDT": {"volatility": 0.035, "risk_reward": 1.5},
+            "DEFAULT": {"volatility": 0.02, "risk_reward": 1.5}
+        }
+        
+        settings = symbol_settings.get(symbol.upper(), symbol_settings["DEFAULT"])
+        volatility = settings["volatility"]
+        risk_reward = settings["risk_reward"]
+        
+        if signal_type.upper() == "BUY":
+            # برای سیگنال خرید
+            if data and len(data) >= 20:
+                # محاسبه حمایت از داده‌ها
+                lows = []
+                for candle in data[-20:]:
+                    if len(candle) > 3:
+                        try:
+                            lows.append(float(candle[3]))
+                        except:
+                            continue
+                
+                if lows:
+                    support_level = min(lows)
+                    # ورود: کمی بالاتر از حمایت
+                    entry = max(current_price * 0.998, support_level * 1.001)
+                else:
+                    entry = current_price * 0.998
+            else:
+                entry = current_price * 0.998
+            
+            # حد ضرر: بر اساس نوسان
+            sl = entry * (1 - volatility)
+            
+            # تارگت اول: نسبت ریسک/پاداش
+            tp1 = entry + (entry - sl) * risk_reward
+            
+            # تارگت دوم: ضریب بیشتر
+            tp2 = entry * (1 + (volatility * 2))
+            
+            return {
+                "entry": round(entry, 4),
+                "tp1": round(tp1, 4),
+                "tp2": round(tp2, 4),
+                "sl": round(sl, 4),
+                "risk_reward": round((tp1 - entry) / (entry - sl), 2)
+            }
+            
+        elif signal_type.upper() == "SELL":
+            # برای سیگنال فروش
+            if data and len(data) >= 20:
+                # محاسبه مقاومت از داده‌ها
+                highs = []
+                for candle in data[-20:]:
+                    if len(candle) > 2:
+                        try:
+                            highs.append(float(candle[2]))
+                        except:
+                            continue
+                
+                if highs:
+                    resistance_level = max(highs)
+                    # ورود: کمی پایین‌تر از مقاومت
+                    entry = min(current_price * 1.002, resistance_level * 0.999)
+                else:
+                    entry = current_price * 1.002
+            else:
+                entry = current_price * 1.002
+            
+            # حد ضرر: بر اساس نوسان
+            sl = entry * (1 + volatility)
+            
+            # تارگت اول: نسبت ریسک/پاداش
+            tp1 = entry - (sl - entry) * risk_reward
+            
+            # تارگت دوم: ضریب بیشتر
+            tp2 = entry * (1 - (volatility * 2))
+            
+            return {
+                "entry": round(entry, 4),
+                "tp1": round(tp1, 4),
+                "tp2": round(tp2, 4),
+                "sl": round(sl, 4),
+                "risk_reward": round((entry - tp1) / (sl - entry), 2)
+            }
         
         else:
-            signal = "HOLD"
-            confidence = 0.0
-            entry = price
-            stop_loss = 0
-            targets = []
+            # برای وضعیت خنثی
+            return {
+                "entry": round(current_price, 4),
+                "tp1": round(current_price * 1.01, 4),
+                "tp2": round(current_price * 1.02, 4),
+                "sl": round(current_price * 0.99, 4),
+                "risk_reward": 1.0
+            }
+            
+    except Exception as e:
+        logger.error(f"Error in calculate_smart_entry for {symbol}: {e}")
+        return {
+            "entry": round(current_price, 4),
+            "tp": round(current_price * 1.02, 4) if signal_type == "BUY" else round(current_price * 0.98, 4),
+            "sl": round(current_price * 0.985, 4) if signal_type == "BUY" else round(current_price * 1.015, 4),
+            "risk_reward": 1.5
+        }
+
+# ==============================================================================
+# توابع کمکی اضافی برای سازگاری کامل
+# ==============================================================================
+
+def calculate_rsi(closes: List[float], period: int = 14) -> float:
+    """محاسبه RSI از لیست قیمت‌های بسته‌شدن"""
+    return calculate_simple_rsi([ [0,0,0,0,c,0] for c in closes ], period)
+
+def calculate_sma(closes: List[float], period: int = 50) -> float:
+    """محاسبه SMA از لیست قیمت‌های بسته‌شدن"""
+    return calculate_simple_sma([ [0,0,0,0,c,0] for c in closes ], period)
+
+def get_binance_klines_enhanced(symbol: str, interval: str = "5m", limit: int = 100):
+    """تابع سازگاری با نام قدیمی"""
+    return get_market_data_with_fallback(symbol, interval, limit)
+
+def get_support_resistance_levels_qm(data: List, lookback: int = 20) -> Dict[str, float]:
+    """شناسایی سطوح حمایت و مقاومت برای الگوی QM"""
+    try:
+        if not data or len(data) < lookback:
+            return {"support": 0, "resistance": 0}
         
-        # ساخت خروجی نهایی
-        validated_signal = {
-            'symbol': analysis.get('symbol'),
-            'signal': signal,
-            'confidence': confidence,
-            'is_validated': signal != "HOLD",
-            'current_price': price,
-            'entry_price': entry,
-            'stop_loss': stop_loss,
-            'targets': targets,
-            'reasons': list(set(reasons)),  # حذف موارد تکراری
-            'rsi': rsi,
-            'macd_signal': macd,
-            'trend': trend,
-            'interval': analysis.get('interval', '5m'),
-            'timestamp': analysis.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        highs = []
+        lows = []
+        
+        for candle in data[-lookback:]:
+            if len(candle) > 3:
+                try:
+                    highs.append(float(candle[2]))
+                    lows.append(float(candle[3]))
+                except (ValueError, TypeError):
+                    continue
+        
+        if not highs or not lows:
+            return {"support": 0, "resistance": 0}
+        
+        # استفاده از روش پیوت برای QM
+        pivot = (max(highs) + min(lows) + data[-1][4]) / 3
+        r1 = (2 * pivot) - min(lows)
+        s1 = (2 * pivot) - max(highs)
+        r2 = pivot + (max(highs) - min(lows))
+        s2 = pivot - (max(highs) - min(lows))
+        
+        return {
+            "pivot": round(pivot, 4),
+            "support1": round(s1, 4),
+            "support2": round(s2, 4),
+            "resistance1": round(r1, 4),
+            "resistance2": round(r2, 4),
+            "high": round(max(highs), 4),
+            "low": round(min(lows), 4)
         }
         
-        return validated_signal
-        
     except Exception as e:
-        logger.error(f"❌ خطا در اعتبارسنجی سیگنال: {e}")
-        return {'signal': 'HOLD', 'is_validated': False}
-
-# ==============================================================================
-# ۱۵. توابع کمکی تحلیل تکنیکال
-# ==============================================================================
-
-def calculate_rsi(prices, period=14):
-    """محاسبه RSI"""
-    if len(prices) < period + 1:
-        return 50
-    
-    deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
-    
-    gains = [delta if delta > 0 else 0 for delta in deltas]
-    losses = [-delta if delta < 0 else 0 for delta in deltas]
-    
-    avg_gain = sum(gains[-period:]) / period
-    avg_loss = sum(losses[-period:]) / period
-    
-    if avg_loss == 0:
-        return 100
-    
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    
-    return round(rsi, 2)
-
-def calculate_macd_signal(prices, fast_period=12, slow_period=26, signal_period=9):
-    """محاسبه سیگنال MACD"""
-    if len(prices) < slow_period + signal_period:
-        return "NEUTRAL"
-    
-    # محاسبه EMA سریع و کند
-    ema_fast = calculate_ema(prices, fast_period)
-    ema_slow = calculate_ema(prices, slow_period)
-    
-    # خط MACD
-    macd_line = ema_fast - ema_slow
-    
-    # خط سیگنال
-    signal_line = calculate_ema([macd_line], signal_period)
-    
-    # هیستوگرام MACD
-    histogram = macd_line - signal_line
-    
-    # تعیین سیگنال
-    if histogram > 0 and macd_line > signal_line:
-        return "BULLISH"
-    elif histogram < 0 and macd_line < signal_line:
-        return "BEARISH"
-    else:
-        return "NEUTRAL"
-
-def calculate_ema(prices, period):
-    """محاسبه میانگین متحرک نمایی"""
-    if len(prices) < period:
-        return sum(prices) / len(prices) if prices else 0
-    
-    multiplier = 2 / (period + 1)
-    ema = prices[0]
-    
-    for price in prices[1:]:
-        ema = (price - ema) * multiplier + ema
-    
-    return ema
-
-def calculate_sma(prices, period):
-    """محاسبه میانگین متحرک ساده"""
-    if len(prices) < period:
-        return sum(prices) / len(prices) if prices else 0
-    
-    return sum(prices[-period:]) / period
-
-def calculate_support_resistance(highs, lows, lookback=20):
-    """محاسبه سطوح حمایت و مقاومت"""
-    if len(highs) < lookback or len(lows) < lookback:
-        return 0, 0
-    
-    support = min(lows[-lookback:])
-    resistance = max(highs[-lookback:])
-    
-    return support, resistance
-
-def identify_trend(prices, sma_20, sma_50):
-    """تشخیص روند بازار"""
-    if len(prices) < 3:
-        return "SIDEWAYS"
-    
-    # مقایسه میانگین‌های متحرک
-    if sma_20 > sma_50 * 1.02:
-        return "UPTREND"
-    elif sma_20 < sma_50 * 0.98:
-        return "DOWNTREND"
-    else:
-        return "SIDEWAYS"
-
-# ==============================================================================
-# ۱۶. موتور اجرایی ربات (The Trading Engine)
-# ==============================================================================
-
-def run_trading_bot(symbols: List[str], interval: str = "5m"):
-    """حلقه اصلی و عملیاتی ربات"""
-    
-    # تنظیمات را از محیط سیستم بخوانید
-    BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_ACTUAL_TOKEN")
-    CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_ACTUAL_ID")
-    
-    # راه‌اندازی سیستم
-    initialize_system()
-    
-    logger.info(f"🚀 ربات شروع به کار کرد. مانیتورینگ {len(symbols)} ارز در تایم‌فریم {interval}")
-    print("\n" + "="*60)
-    print(f"🤖 TRADING BOT ACTIVE")
-    print(f"📊 نمادها: {', '.join(symbols)}")
-    print(f"⏰ تایم‌فریم: {interval}")
-    print(f"🔔 نوتیفیکیشن: {'فعال' if BOT_TOKEN != 'YOUR_ACTUAL_TOKEN' else 'غیرفعال'}")
-    print("="*60 + "\n")
-    
-    # دیکشنری برای ذخیره آخرین سیگنال‌ها
-    last_signals = {}
-    
-    while True:
-        try:
-            cycle_start = time.time()
-            logger.info(f"🔄 شروع چرخه جدید تحلیل - {datetime.now().strftime('%H:%M:%S')}")
-            
-            for symbol in symbols:
-                try:
-                    logger.info(f"🔍 در حال تحلیل {symbol}...")
-                    
-                    # ۱. دریافت داده‌های بازار
-                    data = get_market_data_simple(symbol, interval)
-                    if not data:
-                        logger.warning(f"⚠️ داده‌ای برای {symbol} دریافت نشد")
-                        continue
-                    
-                    # ۲. تحلیل تکنیکال
-                    analysis = combined_technical_analysis(data, symbol, interval)
-                    if not analysis:
-                        logger.warning(f"⚠️ تحلیل {symbol} ناموفق بود")
-                        continue
-                    
-                    # ۳. اعتبارسنجی سیگنال
-                    validated = validate_final_signal(analysis)
-                    
-                    # ۴. بررسی تغییر سیگنال نسبت به آخرین بار
-                    signal_key = f"{symbol}_{interval}"
-                    last_signal = last_signals.get(signal_key, {})
-                    
-                    if (validated['signal'] != "HOLD" and 
-                        validated.get('is_validated', False) and
-                        (last_signal.get('signal') != validated['signal'] or 
-                         validated['confidence'] >= 0.7)):
-                        
-                        # ۵. نمایش پیش‌نمایش در کنسول
-                        print("\n" + "="*60)
-                        print("📊 سیگنال جدید شناسایی شد!")
-                        print("="*60)
-                        
-                        # نمایش ساده در کنسول
-                        console_msg = f"""
-نماد: {validated['symbol']}
-سیگنال: {validated['signal']} ({validated['confidence']*100:.1f}%)
-قیمت: ${validated['current_price']:,.2f}
-دلایل: {', '.join(validated.get('reasons', [])[:3])}
-                        """
-                        print(console_msg)
-                        
-                        # ۶. ذخیره در CSV
-                        save_trade_to_csv(validated)
-                        
-                        # ۷. ارسال به تلگرام
-                        if BOT_TOKEN != "YOUR_ACTUAL_TOKEN" and CHAT_ID != "YOUR_ACTUAL_ID":
-                            msg = format_telegram_message(validated)
-                            success = send_telegram_notification(msg, BOT_TOKEN, CHAT_ID)
-                            
-                            if success:
-                                logger.info(f"✅ سیگنال {symbol} به تلگرام ارسال شد")
-                            else:
-                                logger.warning(f"⚠️ ارسال سیگنال {symbol} به تلگرام ناموفق بود")
-                        
-                        # ۸. به‌روزرسانی آخرین سیگنال
-                        last_signals[signal_key] = {
-                            'signal': validated['signal'],
-                            'timestamp': validated['timestamp'],
-                            'price': validated['current_price']
-                        }
-                    
-                    else:
-                        logger.info(f"📈 هیچ سیگنال قابل‌اقدامی برای {symbol}")
-                    
-                    # وقفه کوتاه بین نمادها
-                    time.sleep(1)
-                    
-                except Exception as e:
-                    logger.error(f"⚠️ خطا در پردازش {symbol}: {e}")
-                    continue
-            
-            # ۹. پاکسازی حافظه
-            clear_expired_cache()
-            
-            # ۱۰. محاسبه زمان باقی‌مانده تا چرخه بعدی
-            cycle_time = time.time() - cycle_start
-            wait_time = max(60 - cycle_time, 10)  # حداقل ۱۰ ثانیه
-            
-            logger.info(f"⏳ چرخه تحلیل پایان یافت. چرخه بعدی در {wait_time:.0f} ثانیه دیگر")
-            
-            # ۱۱. انتظار برای چرخه بعدی
-            for i in range(int(wait_time)):
-                if i % 10 == 0:  # هر ۱۰ ثانیه لاگ کن
-                    remaining = int(wait_time) - i
-                    logger.debug(f"⏰ منتظر چرخه بعدی... {remaining} ثانیه باقی مانده")
-                time.sleep(1)
-            
-        except KeyboardInterrupt:
-            logger.info("🛑 ربات توسط کاربر متوقف شد")
-            print("\n\n" + "="*60)
-            print("👋 ربات متوقف شد. خدانگهدار!")
-            print("="*60)
-            break
-            
-        except Exception as e:
-            logger.error(f"💥 خطای بحرانی در چرخه اصلی: {e}")
-            print(f"❌ خطا: {e}")
-            time.sleep(30)
-
-# ==============================================================================
-# ۱۷. نقطه شروع (Main)
-# ==============================================================================
-
-if __name__ == "__main__":
-    # نمایش بنر آغازین
-    print("\n" + "="*60)
-    print("🚀 Trading Bot v1.0 - Complete Edition")
-    print("="*60)
-    print("📊 تحلیل تکنیکال ترکیبی + نوتیفیکیشن تلگرام")
-    print("👨‍💻 توسعه‌دهنده: Trading Bot Team")
-    print("="*60 + "\n")
-    
-    # لیست نمادهای مورد نظر
-    MY_WATCHLIST = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
-    
-    try:
-        # اجرای ربات
-        run_trading_bot(symbols=MY_WATCHLIST, interval="5m")
-        
-    except Exception as e:
-        logger.critical(f"💥 خطای فاجعه‌بار: {e}")
-        print(f"\n❌ ربات با خطا متوقف شد: {e}")
-        
-    finally:
-        print("\n" + "="*60)
-        print("📁 لاگ‌ها در فایل trading_bot.log ذخیره شدند")
-        print("📊 تاریخچه سیگنال‌ها در trading_signals_history.csv ذخیره شد")
-        print("="*60)
+        logger.error(f"Error in get_support_resistance_levels_qm: {e}")
+        return {"support": 0, "resistance": 0}

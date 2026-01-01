@@ -908,3 +908,5 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("✅ System test completed successfully!")
     print(f"📊 Cache size: {len(_data_cache)}")
+    def get_market_data_simple(symbol: str, timeframe: str = "5m"):
+    return get_market_data_with_fallback(symbol, timeframe)

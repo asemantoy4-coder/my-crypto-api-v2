@@ -4,6 +4,8 @@ import yfinance as yf
 import logging
 from typing import List, Dict, Any, Optional
 
+logger = logging.getLogger(__name__)
+
 # ==============================================================================
 # بخش ویژه: تحلیل ایچیموکو و Smart Entry (هماهنگ‌سازی با main.py)
 # ==============================================================================

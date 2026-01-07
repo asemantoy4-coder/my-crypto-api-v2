@@ -1,53 +1,70 @@
 import logging
+import asyncio
 import ccxt.async_support as ccxt
 from datetime import datetime
 from telegram import Bot
+# وارد کردن ابزارهای کمکی از فایل utils خودتان
+from utils import (
+    calculate_market_structure, 
+    calculate_support_resistance, 
+    calculate_volatility,
+    setup_logger
+)
 
 class FastScalpCompleteBot:
     def __init__(self, config):
         self.config = config
-        self.logger = logging.getLogger(__name__)
-        # ایجاد شیء صرافی بدون نیاز به کلید برای دیتای عمومی
-        self.exchange = ccxt.mexc({
-            'enableRateLimit': True,
-        })
+        self.logger = setup_logger("FastScalpBot")
+        self.exchange = ccxt.mexc({'enableRateLimit': True})
         
     async def scan_market(self):
-        """اسکن واقعی قیمت‌ها از صرافی MEXC و ارسال به تلگرام"""
+        """اسکن پیشرفته بازار با استفاده از متدهای utils.py"""
         try:
-            # لیست ارزهای مورد نظر برای اسکن
-            symbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT']
-            
-            # دریافت اطلاعات قیمت
-            tickers = await self.exchange.fetch_tickers(symbols)
-            
-            # ساخت متن گزارش
-            report = f"🚀 *MEXC Market Update*\n"
-            report += f"⏰ Time: {datetime.now().strftime('%H:%M:%S')}\n"
-            report += "----------------------------\n"
-            
+            # لیست ارزها برای اسکن
+            symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+            report = "🔍 *Advanced Market Analysis*\n\n"
+
             for symbol in symbols:
-                if symbol in tickers:
-                    price = tickers[symbol]['last']
-                    change = tickers[symbol]['percentage']
-                    icon = "🟢" if change >= 0 else "🔴"
-                    report += f"{icon} *{symbol}*: ${price:,} ({change:+.2f}%)\n"
-            
-            # ارسال به تلگرام
-            if self.config.get('telegram_token') and self.config.get('chat_id'):
-                bot = Bot(token=self.config['telegram_token'])
-                await bot.send_message(
+                # 1. دریافت داده‌های OHLCV (شمعی)
+                ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe='5m', limit=100)
+                import pandas as pd
+                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                
+                # 2. تحلیل ساختار بازار با استفاده از utils شما
+                structure = calculate_market_structure(df)
+                
+                # 3. تشخیص سطوح حمایت و مقاومت با استفاده از utils شما
+                levels = calculate_support_resistance(df)
+                
+                # 4. محاسبه نوسان
+                vol = calculate_volatility(df)
+
+                # ساخت گزارش برای هر ارز
+                trend_icon = "📈" if structure['trend'] == "uptrend" else "📉"
+                report += f"{trend_icon} *{symbol}*\n"
+                report += f"• Trend: {structure['trend']}\n"
+                report += f"• Volatility: {vol:.2f}%\n"
+                if levels['nearest_support']:
+                    report += f"• Support: ${levels['nearest_support']['price']}\n"
+                report += "------------------\n"
+
+            # ارسال گزارش نهایی به تلگرام
+            if self.config.get('telegram_token'):
+                tg_bot = Bot(token=self.config['telegram_token'])
+                await tg_bot.send_message(
                     chat_id=self.config['chat_id'],
                     text=report,
                     parse_mode='Markdown'
                 )
-                return f"Success: Reported {len(symbols)} symbols"
             
-            return "Error: Telegram config missing"
-            
+            return "Scan Completed Successfully"
+
         except Exception as e:
-            self.logger.error(f"Scan Error: {str(e)}")
-            return f"Error: {str(e)}"
+            self.logger.error(f"Error during scan: {e}")
+            return f"Error: {e}"
         finally:
-            # بستن کانکشن صرافی برای جلوگیری از نشت حافظه
             await self.exchange.close()
+
+    async def run(self):
+        """متد اجرا که در main.py فراخوانی می‌شود"""
+        await self.scan_market()

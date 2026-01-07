@@ -1,131 +1,170 @@
 #!/usr/bin/env python3
 """
-ورودی اصلی برای Vercel Deployment
+Vercel Serverless Function - Fast Scalp Bot
 """
 
 import os
 import sys
+import json
 import asyncio
-import logging
-import threading
 from datetime import datetime
-import requests
+from http.server import BaseHTTPRequestHandler
+import traceback
 
-# اضافه کردن مسیر
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from bot import FastScalpCompleteBot
-from utils import setup_logger
+# راه‌حل برای Vercel - اضافه کردن مسیرها
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
 
 # ============================================
-# 🎯 تابع اصلی
+# 🎯 تابع ساده برای تست
 # ============================================
 
-async def main():
-    """تابع اصلی اجرای ربات"""
-    
-    print("\n" + "="*60)
-    print("🚀 FAST SCALP BOT - VERCEL DEPLOYMENT")
-    print("="*60)
-    print(f"Start Time: {datetime.utcnow()}")
-    print(f"Python: {sys.version}")
-    print(f"Environment: {os.getenv('VERCEL_ENV', 'development')}")
-    print("="*60 + "\n")
-    
-    # تنظیم لاگر
-    logger = setup_logger("fast_scalp_vercel")
-    
-    # بررسی متغیرهای محیطی
-    required_vars = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
-    missing = [var for var in required_vars if not os.getenv(var)]
-    
-    if missing:
-        logger.error(f"❌ Missing environment variables: {missing}")
-        sys.exit(1)
-    
-    # پیکربندی
-    config = {
-        'telegram_token': os.getenv('TELEGRAM_BOT_TOKEN'),
-        'chat_id': os.getenv('TELEGRAM_CHAT_ID'),
-        'mexc_api_key': os.getenv('MEXC_API_KEY', ''),
-        'mexc_secret_key': os.getenv('MEXC_SECRET_KEY', ''),
-        'timeframe': '5m',
-        'top_n': 3,
-        'update_interval': 3600,
-        'max_symbols': 20,
-        'min_confidence': 65
-    }
-    
-    # ایجاد و اجرای ربات
+async def simple_scan():
+    """یک اسکن ساده برای تست"""
     try:
+        from bot import FastScalpCompleteBot
+        
+        config = {
+            'telegram_token': os.getenv('TELEGRAM_BOT_TOKEN', ''),
+            'chat_id': os.getenv('TELEGRAM_CHAT_ID', ''),
+            'mexc_api_key': os.getenv('MEXC_API_KEY', ''),
+            'mexc_secret_key': os.getenv('MEXC_SECRET_KEY', ''),
+            'timeframe': '5m',
+            'top_n': 3,
+            'update_interval': 3600,
+            'max_symbols': 5  # کاهش برای تست
+        }
+        
         bot = FastScalpCompleteBot(config)
+        result = await bot.scan_market()
+        return {"success": True, "result": result}
         
-        # ارسال پیام شروع
-        try:
-            from telegram import Bot
-            telegram_bot = Bot(token=config['telegram_token'])
-            await telegram_bot.send_message(
-                chat_id=config['chat_id'],
-                text=f"🚀 *Fast Scalp Bot Started on Vercel*\n\nTime: {datetime.utcnow().strftime('%H:%M:%S')} UTC",
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            logger.warning(f"Could not send startup message: {e}")
-        
-        # اجرای ربات
-        logger.info("🤖 Starting main bot loop...")
-        await bot.run()
-        
-    except KeyboardInterrupt:
-        logger.info("👋 Bot stopped by user")
     except Exception as e:
-        logger.error(f"❌ Bot error: {e}", exc_info=True)
-        sys.exit(1)
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 # ============================================
-# 🔄 Keep-alive برای Vercel
+# 🚀 HTTP Handler برای Vercel
 # ============================================
 
-def keep_alive():
-    """ارسال درخواست‌های دوره‌ای برای جلوگیری از sleep شدن"""
-    import time
+class handler(BaseHTTPRequestHandler):
     
-    # دریافت آدرس پروژه از متغیرهای محیطی Vercel
-    vercel_url = os.getenv('VERCEL_URL')
-    if not vercel_url:
-        # اگر Vercel URL وجود ندارد، از localhost استفاده کن
-        vercel_url = "http://localhost:3000"
+    def log_message(self, format, *args):
+        """غیرفعال کردن logهای پیش‌فرض"""
+        pass
     
-    while True:
+    def do_GET(self):
+        """Handle GET requests"""
         try:
-            response = requests.get(f"{vercel_url}/health", timeout=10)
-            print(f"✅ Keep-alive ping: {response.status_code} - {datetime.utcnow().strftime('%H:%M:%S')}")
+            if self.path == '/' or self.path == '/api':
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                
+                response = {
+                    "status": "running",
+                    "service": "fast-scalp-bot",
+                    "time": datetime.utcnow().isoformat(),
+                    "version": "1.0.0",
+                    "endpoints": [
+                        "/health",
+                        "/scan",
+                        "/test"
+                    ]
+                }
+                self.wfile.write(json.dumps(response, indent=2).encode())
+                
+            elif self.path == '/health':
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                
+                response = {
+                    "status": "healthy",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "environment": os.getenv('VERCEL_ENV', 'development')
+                }
+                self.wfile.write(json.dumps(response, indent=2).encode())
+                
+            elif self.path == '/test':
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                
+                # تست ساده بدون وابستگی‌های خارجی
+                response = {
+                    "test": "success",
+                    "python": sys.version,
+                    "path": sys.path,
+                    "env_keys": list(os.environ.keys())[:5]  # فقط ۵ تا اول
+                }
+                self.wfile.write(json.dumps(response, indent=2).encode())
+                
+            elif self.path == '/scan':
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                
+                # اجرای اسکن در background
+                try:
+                    # ایجاد event loop جدید
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    # اجرای اسکن
+                    result = loop.run_until_complete(simple_scan())
+                    loop.close()
+                    
+                    response = {
+                        "status": "scan_completed",
+                        "result": result,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                    
+                except Exception as e:
+                    response = {
+                        "status": "error",
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                
+                self.wfile.write(json.dumps(response, indent=2).encode())
+                
+            else:
+                self.send_response(404)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {"error": "Endpoint not found", "path": self.path}
+                self.wfile.write(json.dumps(response, indent=2).encode())
+                
         except Exception as e:
-            print(f"⚠️ Keep-alive failed: {e}")
-        
-        # هر 5 دقیقه یکبار
-        time.sleep(300)
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            
+            error_response = {
+                "error": "Internal server error",
+                "message": str(e),
+                "type": type(e).__name__,
+                "traceback": traceback.format_exc(),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            self.wfile.write(json.dumps(error_response, indent=2).encode())
 
 # ============================================
-# 🎬 نقطه ورود
+# 🧪 برای تست محلی
 # ============================================
 
 if __name__ == "__main__":
-    # در Vercel، باید endpoint HTTP داشته باشیم
-    # اما ربات ما یک background worker است
-    # بنابراین دو کار همزمان انجام می‌دهیم:
+    from http.server import HTTPServer
     
-    # 1. اجرای keep-alive در background
-    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
-    keep_alive_thread.start()
+    print("🚀 Starting local server on http://localhost:3000")
+    print("📁 Current directory:", os.getcwd())
+    print("🐍 Python path:", sys.path)
     
-    # 2. اجرای ربات اصلی
+    server = HTTPServer(('localhost', 3000), handler)
     try:
-        asyncio.run(main())
+        server.serve_forever()
     except KeyboardInterrupt:
-        print("\n👋 Shutting down...")
-    except Exception as e:
-        print(f"❌ Fatal error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        print("\n👋 Server stopped")

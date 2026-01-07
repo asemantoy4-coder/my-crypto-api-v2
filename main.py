@@ -7,10 +7,11 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 import traceback
 
-# ۱. تنظیمات لاگ مخصوص Vercel (فقط کنسول، بدون ذخیره فایل)
+# ۱. تنظیمات لاگ فقط برای کنسول (جلوگیری از خطای Read-only)
+# حذف FileHandler که باعث ارور ۳۰ می‌شد
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
@@ -20,11 +21,10 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# ۳. تابع اصلی اجرای اسکن
+# ۳. تابع اجرای اسکن
 async def simple_scan():
     """اجرای منطق بات و ارسال به تلگرام"""
     try:
-        # وارد کردن کلاس بات از فایل bot.py
         from bot import FastScalpCompleteBot
         
         # دریافت تنظیمات از Environment Variables در Vercel
@@ -37,9 +37,8 @@ async def simple_scan():
             'top_n': 3
         }
         
-        # بررسی وجود توکن‌ها
         if not config['telegram_token'] or not config['chat_id']:
-            return {"success": False, "error": "Missing Telegram Token or Chat ID in Vercel Variables"}
+            return {"success": False, "error": "Missing Env Vars (Token or Chat ID)"}
 
         bot = FastScalpCompleteBot(config)
         result = await bot.scan_market()
@@ -54,7 +53,7 @@ class handler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         try:
-            # مسیر اصلی برای تست سلامت
+            # مسیر اصلی
             if self.path in ['/', '/api', '/health']:
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
@@ -62,17 +61,17 @@ class handler(BaseHTTPRequestHandler):
                 response = {
                     "status": "online",
                     "timestamp": datetime.utcnow().isoformat(),
-                    "message": "FastScalp Bot is ready"
+                    "message": "Vercel Server is Running"
                 }
                 self.wfile.write(json.dumps(response).encode())
 
-            # مسیر اجرای اسکن (این آدرس را در مرورگر بزنید یا کرون‌جاب ست کنید)
+            # مسیر اجرای اسکن: https://your-site.vercel.app/scan
             elif self.path == '/scan':
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 
-                # اجرای بخش Async
+                # اجرای بخش Async در محیط Sync
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 result = loop.run_until_complete(simple_scan())
@@ -83,19 +82,18 @@ class handler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-                self.wfile.write(b"Endpoint not found")
+                self.wfile.write(b"Not Found")
 
         except Exception as e:
             logger.error(f"Critical Error: {str(e)}")
             self.send_response(500)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            error_msg = {"error": "Internal Server Error", "details": str(e)}
-            self.wfile.write(json.dumps(error_msg).encode())
+            self.wfile.write(json.dumps({"error": str(e)}).encode())
 
-# ۵. تست محلی (اختیاری)
+# ۵. تست محلی
 if __name__ == "__main__":
     from http.server import HTTPServer
-    print("Running local server on http://localhost:3000")
+    print("Local: http://localhost:3000")
     server = HTTPServer(('localhost', 3000), handler)
     server.serve_forever()

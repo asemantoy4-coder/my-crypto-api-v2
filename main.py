@@ -204,7 +204,7 @@ async def system_health_check() -> bool:
     checks.append(("Python >= 3.8", python_ok, f"{python_version.major}.{python_version.minor}"))
     
     # 2. بررسی وجود فایل‌های ضروری
-    required_files = ['requirements.txt', 'bot.py', 'indicators.py', 'utils.py']
+    required_files = ['requirements.txt', 'bot.py', 'utils.py']
     for file in required_files:
         exists = Path(file).exists()
         checks.append((f"File: {file}", exists, "Found" if exists else "Missing"))

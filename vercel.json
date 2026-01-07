@@ -1,30 +1,24 @@
 {
-  "functions": {
-    "api/index.py": {
-      "runtime": "python3.9",
-      "maxDuration": 300,
-      "memory": 3008
-    }
-  },
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/api/index.py"
-    }
-  ],
+  "version": 2,
   "builds": [
     {
       "src": "api/index.py",
       "use": "@vercel/python"
     }
   ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.py"
+    }
+  ],
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
   "env": {
-    "PYTHONPATH": "/var/task"
+    "PYTHONPATH": "/var/task:/var/task/api"
   }
 }
-"crons": [
-  {
-    "path": "/api/cron",
-    "schedule": "0 * * * *"  // هر ساعت
-  }
-]

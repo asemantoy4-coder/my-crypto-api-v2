@@ -22,3 +22,9 @@
     "PYTHONPATH": "/var/task"
   }
 }
+"crons": [
+  {
+    "path": "/api/cron",
+    "schedule": "0 * * * *"  // هر ساعت
+  }
+]

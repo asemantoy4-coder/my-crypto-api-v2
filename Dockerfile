@@ -1,4 +1,3 @@
-# پایه: Python 3.9
 FROM python:3.9-slim
 
 # تنظیم مسیر کاری
@@ -11,13 +10,12 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# آپدیت pip, setuptools, wheel و حذف هشدار root
-RUN python -m pip install --upgrade pip setuptools wheel \
-    --root-user-action=ignore
+# آپدیت pip به آخرین نسخه
+RUN python -m pip install --upgrade pip
 
-# کپی فایل requirements و نصب وابستگی‌های Python
+# کپی و نصب وابستگی‌های Python
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt --root-user-action=ignore
+RUN pip install --no-cache-dir -r requirements.txt
 
 # کپی کل کد پروژه
 COPY . .

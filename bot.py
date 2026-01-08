@@ -4,7 +4,8 @@ import ccxt.async_support as ccxt
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-from telegram import Bot, ParseMode
+from telegram import Bot
+from telegram.constants import ParseMode
 import time
 
 # وارد کردن اندیکاتورهای ترکیبی

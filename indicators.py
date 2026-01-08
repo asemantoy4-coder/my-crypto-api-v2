@@ -77,7 +77,7 @@ class CombinedIndicators:
             ema_n1 = pd.Series(src).ewm(span=n1).mean()
             abs_diff = np.abs(src - ema_n1.values)
             ema_abs = pd.Series(abs_diff).ewm(span=n1).mean()
-            tci = ((src - ema_n1.values) / (0.025 * ema_abs.values)).ewm(span=n2).mean() + 50
+            tci = ((src - ema_n1) / (0.025 * ema_abs)).ewm(span=n2).mean() + 50
             
             # RSI
             rsi_indicator = RSIIndicator(close=pd.Series(src), window=n3)

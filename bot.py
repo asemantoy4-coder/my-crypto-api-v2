@@ -317,28 +317,23 @@ TP2: {tp2:,.4f} ({tp2_pct:+.2f}%)
             self.logger.warning(f"Could not send startup message: {e}")
         
         try:
-            # حلقه اصلی - هر 1 ساعت اسکن کن
+            # Main Loop - Scans every 1 hour
             while True:
                 try:
                     await self.scan_market()
-                    self.logger.info(f"⏳ Next scan in 1 hour...")
-                    await asyncio.sleep(3600)  # 1 ساعت
-                except KeyboardInterrupt:
-                    break
+                    self.logger.info("⏳ Next scan in 1 hour...")
+                    await asyncio.sleep(3600)  # 1 Hour
                 except Exception as e:
                     self.logger.error(f"Error in main loop: {e}")
-                    await asyncio.sleep(300)  # 5 دقیقه صبر و دوباره تلاش
-                    
+                    await asyncio.sleep(300)  # Wait 5 mins on error
         except KeyboardInterrupt:
             self.logger.info("👋 Bot stopped by user")
-            
         finally:
-            # بستن اتصال صرافی
+            # Securely close exchange connection
             try:
                 if hasattr(self, 'exchange') and self.exchange:
                     await self.exchange.close()
-                    if self.logger:
-                        self.logger.info("✅ Exchange connection closed")
+                    self.logger.info("✅ Exchange connection closed")
             except Exception as e:
                 if self.logger:
                     self.logger.error(f"Error closing exchange: {e}")

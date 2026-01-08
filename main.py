@@ -147,8 +147,8 @@ def load_config() -> dict:
     config.update({
         'timeframe': os.getenv('TIMEFRAME', '5m'),
         'top_n': int(os.getenv('TOP_N_SIGNALS', '3')),
-        'update_interval': int(os.getenv('UPDATE_INTERVAL', '3600')),
-        'min_confidence': int(os.getenv('MIN_CONFIDENCE', '65')),
+        'update_interval': int(os.getenv('UPDATE_INTERVAL', '300')),
+        'min_confidence': int(os.getenv('MIN_CONFIDENCE', '40')),
         'max_symbols': int(os.getenv('MAX_SYMBOLS', '20')),
         'risk_reward': float(os.getenv('RISK_REWARD_RATIO', '1.5')),
         'atr_period': int(os.getenv('ATR_PERIOD', '14'))

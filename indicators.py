@@ -63,53 +63,52 @@ class CombinedIndicators:
             return {}
     
     def calculate_smart_money_signals(self, df: pd.DataFrame) -> Dict:
-        """محاسبه سیگنال‌های Smart Money ساده‌شده"""
+        """محاسبه سیگنال‌های Smart Money ساده‌شده - اصلاح شده برای رفع خطا"""
         try:
-            close = df['close'].values
-            high = df['high'].values
-            low = df['low'].values
+            # استفاده از Series به جای values برای حفظ قابلیت‌های Pandas
+            close = df['close']
+            high = df['high']
+            low = df['low']
             
             # Wave Trend ساده‌شده
             src = (high + low + close) / 3
             
             # TCI ساده‌شده
             n1, n2, n3 = 9, 6, 3
-            ema_n1 = pd.Series(src).ewm(span=n1).mean()
-            abs_diff = np.abs(src - ema_n1.values)
-            ema_abs = pd.Series(abs_diff).ewm(span=n1).mean()
-            tci = ((src - ema_n1) / (0.025 * ema_abs)).ewm(span=n2).mean() + 50
+            # حذف .values الزامی است تا خروجی همچنان Series باقی بماند
+            ema_n1 = src.ewm(span=n1).mean()
+            abs_diff = (src - ema_n1).abs()
+            ema_abs = abs_diff.ewm(span=n1).mean()
             
-            # RSI
-            rsi_indicator = RSIIndicator(close=pd.Series(src), window=n3)
+            # جلوگیری از تقسیم بر صفر و محاسبه TCI
+            tci = ((src - ema_n1) / (0.025 * ema_abs + 0.000001)).ewm(span=n2).mean() + 50
+            
+            # RSI پایه
+            rsi_indicator = RSIIndicator(close=src, window=n3)
             wt_rsi = rsi_indicator.rsi()
             
-            # ترکیب
-            wt1 = pd.concat([pd.Series(tci), wt_rsi], axis=1).mean(axis=1)
+            # ترکیب و میانگین‌گیری (استفاده از fillna برای جلوگیری از NaN)
+            wt1 = (tci + wt_rsi.fillna(50)) / 2
             wt2 = wt1.rolling(window=6).mean()
             
-            # سیگنال‌های Boom Hunter ساده‌شده
-            q1 = wt1
-            trigger = wt2
+            # سیگنال‌های Crossover
+            bh_crossover = (wt1.iloc[-1] > wt2.iloc[-1]) and (wt1.iloc[-2] <= wt2.iloc[-2])
+            bh_crossunder = (wt1.iloc[-1] < wt2.iloc[-1]) and (wt1.iloc[-2] >= wt2.iloc[-2])
             
-            bh_crossover = (q1.iloc[-1] > trigger.iloc[-1]) and (q1.iloc[-2] <= trigger.iloc[-2])
-            bh_crossunder = (q1.iloc[-1] < trigger.iloc[-1]) and (q1.iloc[-2] >= trigger.iloc[-2])
-            
-            # تشخیص Range Box
+            # سایر محاسبات (تشخیص باکس و اردر بلاک)
             box_lookback = 50
-            box_top = df['high'].rolling(box_lookback).max().iloc[-1]
-            box_bottom = df['low'].rolling(box_lookback).min().iloc[-1]
-            box_mid = (box_top + box_bottom) / 2
-            
-            current_price = df['close'].iloc[-1]
+            box_top = high.rolling(box_lookback).max().iloc[-1]
+            box_bottom = low.rolling(box_lookback).min().iloc[-1]
             box_range = box_top - box_bottom
+            current_price = close.iloc[-1]
             
             in_box = (current_price > box_bottom) and (current_price < box_top)
             near_bottom = current_price <= box_bottom + (box_range * 0.2)
             near_top = current_price >= box_top - (box_range * 0.2)
             
-            # تشخیص Order Block
-            bullish_move = (close[-1] > close[-2]) and (close[-2] < close[-3])
-            bearish_move = (close[-1] < close[-2]) and (close[-2] > close[-3])
+            # تشخیص Order Block ساده (استفاده از iloc برای امنیت بیشتر)
+            bullish_move = (close.iloc[-1] > close.iloc[-2]) and (close.iloc[-2] < close.iloc[-3])
+            bearish_move = (close.iloc[-1] < close.iloc[-2]) and (close.iloc[-2] > close.iloc[-3])
             
             return {
                 'bh_crossover': bool(bh_crossover),
@@ -121,7 +120,7 @@ class CombinedIndicators:
                 'near_top': bool(near_top),
                 'box_top': float(box_top),
                 'box_bottom': float(box_bottom),
-                'box_mid': float(box_mid),
+                'box_mid': float((box_top + box_bottom) / 2),
                 'bullish_move': bool(bullish_move),
                 'bearish_move': bool(bearish_move)
             }

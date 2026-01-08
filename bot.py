@@ -1,12 +1,11 @@
 import logging
 import asyncio
 import ccxt.async_support as ccxt
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
 import numpy as np
 from telegram import Bot
 from telegram.constants import ParseMode
-import time
 
 # وارد کردن اندیکاتورهای ترکیبی
 from indicators import CombinedIndicators
@@ -18,6 +17,7 @@ from utils import (
     PerformanceTracker,
     SignalScorer
 )
+
 
 class FastScalpCompleteBot:
     def __init__(self, config):
@@ -317,7 +317,7 @@ TP2: {tp2:,.4f} ({tp2_pct:+.2f}%)
             self.logger.warning(f"Could not send startup message: {e}")
         
         try:
-           # حلقه اصلی - هر 1 ساعت اسکن کن
+            # حلقه اصلی - هر 1 ساعت اسکن کن
             while True:
                 try:
                     await self.scan_market()
@@ -328,12 +328,17 @@ TP2: {tp2:,.4f} ({tp2_pct:+.2f}%)
                 except Exception as e:
                     self.logger.error(f"Error in main loop: {e}")
                     await asyncio.sleep(300)  # 5 دقیقه صبر و دوباره تلاش
+                    
+        except KeyboardInterrupt:
+            self.logger.info("👋 Bot stopped by user")
+            
         finally:
-            # بستن اتصال صرافی (اینجا باید تورفتگی داشته باشد)
+            # بستن اتصال صرافی
             try:
-                if self.exchange:
+                if hasattr(self, 'exchange') and self.exchange:
                     await self.exchange.close()
-                    self.logger.info("✅ Exchange connection closed")
+                    if self.logger:
+                        self.logger.info("✅ Exchange connection closed")
             except Exception as e:
                 if self.logger:
                     self.logger.error(f"Error closing exchange: {e}")

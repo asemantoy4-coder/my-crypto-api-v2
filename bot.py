@@ -21,7 +21,7 @@ class FastScalpCompleteBot:
         """اسکن پیشرفته بازار با استفاده از متدهای utils.py"""
         try:
             # لیست ارزها برای اسکن
-            symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+            symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'UNI/USDT', 'ENA/USDT' , 'OP/USDT' , 'XAU/USDT']
             report = "🔍 *Advanced Market Analysis*\n\n"
 
             for symbol in symbols:

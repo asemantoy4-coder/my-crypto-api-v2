@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 from telegram import Bot, ParseMode
+import time
 
 # وارد کردن اندیکاتورهای ترکیبی
 from indicators import CombinedIndicators
@@ -314,17 +315,22 @@ TP2: {tp2:,.4f} ({tp2_pct:+.2f}%)
         except Exception as e:
             self.logger.warning(f"Could not send startup message: {e}")
         
-        # حلقه اصلی - هر 1 ساعت اسکن کن
-        import time
-        while True:
-            try:
-                await self.scan_market()
-                self.logger.info(f"⏳ Next scan in 1 hour...")
-                await asyncio.sleep(3600)  # 1 ساعت
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                self.logger.error(f"Error in main loop: {e}")
-                await asyncio.sleep(300)  # 5 دقیقه صبر و دوباره تلاش
+        try:
+            # حلقه اصلی - هر 1 ساعت اسکن کن
+            while True:
+                try:
+                    await self.scan_market()
+                    self.logger.info(f"⏳ Next scan in 1 hour...")
+                    await asyncio.sleep(3600)  # 1 ساعت
+                except KeyboardInterrupt:
+                    break
+                except Exception as e:
+                    self.logger.error(f"Error in main loop: {e}")
+                    await asyncio.sleep(300)  # 5 دقیقه صبر و دوباره تلاش
         finally:
-            await self.exchange.close()
+            # بستن اتصال صرافی
+            try:
+                await self.exchange.close()
+                self.logger.info("✅ Exchange connection closed")
+            except Exception as e:
+                self.logger.error(f"Error closing exchange: {e}")

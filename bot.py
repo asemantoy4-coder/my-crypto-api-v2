@@ -317,7 +317,7 @@ TP2: {tp2:,.4f} ({tp2_pct:+.2f}%)
             self.logger.warning(f"Could not send startup message: {e}")
         
         try:
-            # حلقه اصلی - هر 1 ساعت اسکن کن
+           # حلقه اصلی - هر 1 ساعت اسکن کن
             while True:
                 try:
                     await self.scan_market()
@@ -329,9 +329,11 @@ TP2: {tp2:,.4f} ({tp2_pct:+.2f}%)
                     self.logger.error(f"Error in main loop: {e}")
                     await asyncio.sleep(300)  # 5 دقیقه صبر و دوباره تلاش
         finally:
-            # بستن اتصال صرافی
+            # بستن اتصال صرافی (اینجا باید تورفتگی داشته باشد)
             try:
-                await self.exchange.close()
-                self.logger.info("✅ Exchange connection closed")
+                if self.exchange:
+                    await self.exchange.close()
+                    self.logger.info("✅ Exchange connection closed")
             except Exception as e:
-                self.logger.error(f"Error closing exchange: {e}")
+                if self.logger:
+                    self.logger.error(f"Error closing exchange: {e}")
